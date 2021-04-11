@@ -16,14 +16,21 @@ import ru.reybos.aeon.repository.DepositRepository;
 import ru.reybos.aeon.repository.DepositTransactionRepository;
 import ru.reybos.aeon.repository.PersonRepository;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import java.util.Collection;
+import java.util.LinkedList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(classes = Main.class)
 @AutoConfigureMockMvc
-class PersonControllerTest {
+public class DepositControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
@@ -47,28 +54,9 @@ class PersonControllerTest {
     }
 
     @Test
-    public void whenGetAllPersonThenStatus403() throws Exception {
-        mockMvc.perform(get("/person/"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    public void whenCreatedThenStatus201() throws Exception {
+    public void whenPaymentOnceThenStatus200() throws Exception {
         Person person = Person.of("Login", "Password");
-        mockMvc.perform(
-                post("/person/")
-                        .content(objectMapper.writeValueAsString(person))
-                        .contentType(MediaType.APPLICATION_JSON)
-        )
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").isNumber())
-                .andExpect(jsonPath("$.login").value("Login"))
-                .andExpect(jsonPath("$.deposit.balance").value(Deposit.STANDARD_VALUE));
-    }
 
-    @Test
-    public void whenLoginAndGetAllPersonThenStatus200() throws Exception {
-        Person person = Person.of("Login", "Password");
         mockMvc.perform(
                 post("/person/")
                         .content(objectMapper.writeValueAsString(person))
@@ -82,18 +70,54 @@ class PersonControllerTest {
                 .andExpect(status().isOk())
                 .andReturn();
         String token = result.getResponse().getHeader("Authorization");
-        mockMvc.perform(get("/person/")
+
+        mockMvc.perform(put("/payment/")
                 .header("Authorization", token))
                 .andExpect(status().isOk());
+
+        person = personRepository.findByLogin(person.getLogin()).get();
+        int expectedBalance = Deposit.STANDARD_VALUE - Deposit.REDUCE_VALUE;
+        assertThat(person.getDeposit().getBalance(), is(expectedBalance));
+        assertThat(person.getDeposit().getTransactions().size(), is(1));
     }
 
     @Test
-    public void whenLoginThenStatus401() throws Exception {
+    public void whenManyPaymentsThenCorrectBalance() throws Exception {
         Person person = Person.of("Login", "Password");
+
         mockMvc.perform(
+                post("/person/")
+                        .content(objectMapper.writeValueAsString(person))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isCreated());
+
+        MvcResult result = mockMvc.perform(
                 post("/login")
                         .content(objectMapper.writeValueAsString(person))
                         .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk())
+                .andReturn();
+        String token = result.getResponse().getHeader("Authorization");
+
+        int expectedBalance = Deposit.STANDARD_VALUE;
+        int expectedTransactions = 0;
+        ExecutorService pool = Executors.newCachedThreadPool();
+        Collection<Future<?>> futures = new LinkedList<>();
+        for (int i = 0; i < 7; i++) {
+            if (expectedBalance - Deposit.REDUCE_VALUE >= 0) {
+                expectedBalance -= Deposit.REDUCE_VALUE;
+                expectedTransactions++;
+            }
+            futures.add(pool.submit(() -> mockMvc.perform(put("/payment/")
+                    .header("Authorization", token))
+                    .andReturn()));
+        }
+        for (Future<?> future:futures) {
+            future.get();
+        }
+
+        person = personRepository.findByLogin(person.getLogin()).get();
+        assertThat(person.getDeposit().getBalance(), is(expectedBalance));
+        assertThat(person.getDeposit().getTransactions().size(), is(expectedTransactions));
     }
 }

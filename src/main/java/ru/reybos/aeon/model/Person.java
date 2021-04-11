@@ -17,11 +17,19 @@ public class Person {
     @Column(name = "password")
     private String password;
 
+    @OneToOne(fetch = FetchType.LAZY, mappedBy = "person")
+    private Deposit deposit;
+
     public static Person of(String login, String password) {
         Person person = new Person();
         person.login = login;
         person.password = password;
         return person;
+    }
+
+    public void addDeposit(Deposit deposit) {
+        deposit.setPerson(this);
+        this.setDeposit(deposit);
     }
 
     public int getId() {
@@ -46,6 +54,14 @@ public class Person {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public Deposit getDeposit() {
+        return deposit;
+    }
+
+    public void setDeposit(Deposit deposit) {
+        this.deposit = deposit;
     }
 
     @Override
