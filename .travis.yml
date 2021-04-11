@@ -1,0 +1,24 @@
+language: java
+jdk:
+  - openjdk14
+
+services:
+  - postgresql
+before_install:
+  - psql -c 'create database aeon;' -U postgres
+
+sudo: false
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
+
+notifications:
+  email:
+    recipients:
+      - andreybossiy@gmail.com
+    on_success: never # default: change
+    on_failure: always # default: always
+
+env:
+  global:
+    - CODECOV_TOKEN="8af18927-5c91-4392-a57f-80c44b60d4d2"
